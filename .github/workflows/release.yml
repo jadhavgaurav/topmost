@@ -1,0 +1,42 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish-release:
+    name: Build & Publish Release
+    runs-on: macos-14
+    steps:
+      - name: Checkout Tagged Commit
+        uses: actions/checkout@v4
+
+      - name: Show Build Environment
+        run: |
+          sw_vers
+          uname -m
+          swift --version
+
+      - name: Run Test Suite
+        run: ./scripts/test.sh
+
+      - name: Package Universal Release Artifacts
+        run: ./scripts/package.sh
+
+      - name: Upload Release Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Topmost ${{ github.ref_name }} – Native macOS Always on Top"
+          body_path: docs/RELEASE.md
+          draft: false
+          prerelease: false
+          files: |
+            dist/*.zip
+            dist/*.dmg
+            dist/SHA256SUMS

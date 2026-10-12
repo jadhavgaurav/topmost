@@ -1,0 +1,26 @@
+# Xcode and SPM
+.build/
+.swiftpm/
+DerivedData/
+*.xcodeproj
+*.xcworkspace
+*.xcuserstate
+
+# OS files
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+
+# Build and Distribution artifacts
+build/
+dist/
+*.dmg
+*.zip
+SHA256SUMS
+*.iconset
+
+# Logs & temp
+*.log
+/tmp/

@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: Build & Test (macOS)
+    runs-on: macos-14
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Show Environment Information
+        run: |
+          sw_vers
+          uname -m
+          swift --version
+
+      - name: Run Automated Test Suite
+        run: ./scripts/test.sh
+
+      - name: Build Universal Binary
+        run: ./scripts/build.sh
+
+      - name: Package Application Bundle & DMG
+        run: ./scripts/package.sh
+
+      - name: Verify Bundle Integrity
+        run: |
+          codesign -dvvv build/Topmost.app
+          ls -lh dist/
+          cat dist/SHA256SUMS
