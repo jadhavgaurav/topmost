@@ -1,27 +1,25 @@
-name: Feature Request
-description: Suggest an idea or enhancement for Topmost
+name: Feature request
+description: Suggest an idea or an improvement for Topmost
 labels: ["enhancement"]
 body:
   - type: markdown
     attributes:
       value: |
-        Thank you for suggesting a feature for Topmost!
+        Thanks for the suggestion. Please look at the [known limitations](https://github.com/jadhavgaurav/topmost/blob/main/docs/LIMITATIONS.md) first, since some things cannot be done on macOS.
   - type: textarea
     id: problem
     attributes:
-      label: Is your feature request related to a problem?
-      description: A clear description of what the problem or limitation is.
+      label: What problem would this solve?
+      description: Describe what you are trying to do and what gets in the way.
     validations:
       required: true
   - type: textarea
     id: solution
     attributes:
-      label: Describe the solution you'd like
-      description: A clear and concise description of what you want to happen.
+      label: What would you like to happen?
     validations:
       required: true
   - type: textarea
     id: alternatives
     attributes:
-      label: Describe alternatives you've considered
-      description: Any alternative solutions or features you've considered.
+      label: Alternatives you have considered

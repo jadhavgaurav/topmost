@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Troubleshooting guide
+    url: https://github.com/jadhavgaurav/topmost/blob/main/docs/TROUBLESHOOTING.md
+    about: Most problems are a missing or stale Accessibility or Screen Recording permission. Check here first.
+  - name: Report a security problem
+    url: https://github.com/jadhavgaurav/topmost/security/advisories/new
+    about: Please report vulnerabilities privately, not in a public issue.

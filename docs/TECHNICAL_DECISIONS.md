@@ -71,21 +71,21 @@ We evaluated an approach where Topmost does not mirror the window, but instead i
 
 ## 3. Window Interaction Model
 
-When an external window is mirrored in a floating overlay:
-- **When the source application is frontmost:** The user interacts directly with the real native window. The floating mirror panel is transparent or click-through (`ignoresMouseEvents = true`), guaranteeing 100% native responsiveness, full keyboard input, drag-and-drop, and context menus.
-- **When another application is active:**
-  - The floating mirror remains visible above the other application's windows.
-  - **Primary / Default Interaction (Bring Forward on Click):** Clicking anywhere on the floating overlay instantly activates the source application (`sourceApp.activate(options: [.activateIgnoringOtherApps])`) and raises the source window (`kAXRaiseAction`). The real window instantly receives focus, allowing immediate typing and interaction.
-  - **Secondary / Optional Forwarding:** If mouse forwarding is enabled in settings, mouse down/up events can be posted via `CGEventPost` to the source application's window coordinates.
+A mirror is only useful if the real window is easy to reach. Topmost treats the mirror as a stand-in that gets out of the way.
 
-This provides an honest, reliable user experience without making false claims about synthetic keyboard focus in mirrored layers.
+- **Pinned window focused in the active app (Native).** The mirror is hidden. You use the real window, with real dragging, typing and window controls, and there is no copy to lag behind it.
+- **Anything else (Mirrored).** The mirror floats above other apps and takes the first press. Topmost activates the real app, then either moves the real window (a drag that starts in the title strip) or replays the click onto it.
+
+The mirror was previously click-through whenever the source app was active, and always visible. That left a second, slightly delayed copy of the window on top of the real one while you dragged it, which is where the lag came from. Hiding the mirror in the Native state removes the copy.
+
+The states and the press handling are described in [ARCHITECTURE.md](ARCHITECTURE.md#interaction-states).
 
 ---
 
 ## 4. Visual & Audio Feedback Architecture
 
 ### Pin Outline
-- An auxiliary non-interactive `NSPanel` (`ignoresMouseEvents = true`) at `.floating` level draws a crisp 3px solid `#007AFF` blue outline with standard macOS rounded corners (10–12pt radius).
+- An auxiliary non-interactive `NSPanel` (`ignoresMouseEvents = true`) at `.floating` level draws a crisp 3px solid `#007AFF` blue outline with standard macOS rounded corners (10 to 12 pt radius).
 - Because `ignoresMouseEvents` is `true`, clicks pass through unaffected to the underlying window.
 - The outline tracks source window geometry and remains visible across Spaces.
 
@@ -120,3 +120,52 @@ We selected the Carbon Event Manager `RegisterEventHotKey` API for `Control + Co
   - Accessibility: Used only to detect focused window identity and observe geometry.
   - Screen Recording: Used strictly for `SCShareableContent` on explicitly user-pinned windows.
 - **SIP Compatible:** 100% compliant with System Integrity Protection and Apple Notarization standards.
+
+---
+
+## 7. Decision Records
+
+Short records of choices made after the first release. Each one names the problem, the choice, and what it costs.
+
+### D1. Activate with `AXFrontmost`, not `NSRunningApplication.activate()`
+
+- **Problem:** On macOS 14 and later, `activate()` is ignored when the calling app is not frontmost, and Topmost never is. Pressing a mirrored window did nothing, so the pinned window was unreachable.
+- **Choice:** Set the `AXFrontmost` attribute on the app's Accessibility element, then raise the window. This needs the Accessibility permission Topmost already has. `activate()` remains as a fallback.
+- **Cost:** An Accessibility call that can block, which is why every call has a 0.5 second timeout.
+
+### D2. Move the real window through Accessibility instead of replaying drag events
+
+- **Problem:** A press on the mirror belongs to the mirror for its whole length. Replaying the mouse-down and the drag onto the real window did not work reliably while the window was still activating.
+- **Choice:** Treat a drag that starts in the top 44 points as a window move. Write the new position with `kAXPositionAttribute`. Replay only plain clicks, after the real window is active.
+- **Cost:** Dragging from the body of a mirrored window only activates the app. It is not forwarded, so text selection by dragging needs a second press. This avoids fighting the app over what a drag means.
+
+### D3. Move the mirror and outline first, the real window second
+
+- **Problem:** Waiting for the real window to report its new position before moving the overlays made them trail the pointer.
+- **Choice:** During a drag, move the mirror and outline under the pointer immediately. Send position writes to the real app at most 60 times a second, and write the exact final position on release. Ignore position reports from the real window while the drag lasts.
+- **Cost:** For a moment the real window can be a few pixels behind the mirror. It is hidden under the mirror, so it is not seen.
+
+### D4. Look up pinned windows by ID instead of listing every window
+
+- **Problem:** Tracking copied the whole window list ten times a second and once more for each move event. On a busy desktop that is real load on the window server.
+- **Choice:** `CGWindowListCreateDescriptionFromArray` for just the pinned window IDs, about 0.1 ms each. Coalesce events, and track fast only while something is moving.
+- **Cost:** More states in `WindowObserver` (idle, motion, linger) to reason about.
+
+### D5. Never intercept the mouse without a picture
+
+- **Problem:** If capture failed, the mirror was a transparent panel that still swallowed every click, and the user could not reach the window underneath.
+- **Choice:** The mirror ignores the mouse until its first frame has been shown. If capture cannot start or stops, the pin is removed.
+- **Cost:** A failed capture silently ends the pin, with an error sound. Troubleshooting covers why this happens.
+
+### D6. Version the settings schema
+
+- **Problem:** `SettingsManager` writes every value to `UserDefaults` on launch, so a changed default never reaches anyone who already ran the app. The old click behavior stayed in force after the code changed.
+- **Choice:** A `settingsSchemaVersion` key and a `migrateIfNeeded()` step that resets the affected keys once.
+- **Cost:** A deliberate choice made before a migration is reset once. Later choices are kept.
+
+### D7. A stable local signing identity for development
+
+- **Problem:** An ad-hoc signature changes with every build, so macOS treats each rebuild as a new app and drops its Accessibility and Screen Recording approvals.
+- **Choice:** `scripts/setup-signing.sh` creates a self-signed identity in a dedicated keychain, and `package.sh` uses it for local builds. Release builds stay ad hoc so they never depend on one person's keychain.
+- **Cost:** Releases still need "Open Anyway" on first launch until the app is signed with a paid Developer ID and notarized.
+

@@ -1,49 +1,56 @@
-# Permissions & Privacy: Topmost
+# Permissions and privacy
 
-## Principle of Least Privilege
+## What Topmost promises
 
-Topmost is built strictly around user privacy and security:
-- **No telemetry, analytics, or background network calls.**
-- **No persistent disk storage of window frames or content.**
-- **No broad screen recording before explicit user action.**
-- **No administrator privileges, kernel extensions, or SIP modifications.**
+- No telemetry, no analytics and no network calls. The only network use is `install.sh`, which you run yourself.
+- Nothing about your windows is written to disk. Settings are the only thing saved, in `UserDefaults`.
+- Screen capture starts only after you pin a window, and covers that window alone.
+- No administrator rights, kernel extensions or changes to System Integrity Protection.
 
----
+## The two permissions
 
-## Required macOS Permissions
+### Accessibility
 
-### 1. Accessibility (`AXIsProcessTrusted`)
+Used for:
 
-#### Why is it needed?
-- **Focused Window Discovery:** To identify which application and window is currently active when you press `Control + Command + P`.
-- **Window Geometry Tracking:** To observe window moves and resizes (`kAXMovedNotification`, `kAXResizedNotification`) so the pin outline and floating overlay remain aligned.
-- **Window Activation:** To raise the real window to the front when you click on the pinned overlay.
+- Finding the focused window when you press the shortcut.
+- Following the pinned window as it moves, resizes or closes.
+- Bringing the real app forward and raising its window when you press the mirror.
+- Moving the real window when you drag a mirrored window by its title bar.
 
-#### What it does NOT do:
-- It does **not** log keystrokes.
-- It does **not** read text contents or credentials inside windows.
+Not used for: reading text, passwords or the contents of any window, and not for watching the keyboard. The global shortcut is registered with the Carbon Event Manager (`RegisterEventHotKey`), which delivers only your one shortcut to Topmost. There is no event tap.
 
----
+### Screen Recording
 
-### 2. Screen Recording (`CGPreflightScreenCaptureAccess`)
+Used for: ScreenCaptureKit, to show a live picture of the pinned window in the mirror.
 
-#### Why is it needed?
-- **ScreenCaptureKit:** Required by Apple to capture and stream the visual surface of a window into the floating overlay panel.
+Scope:
 
-#### Scope of Capture:
-- Capture is strictly initiated **only** after you explicitly pin a window.
-- The capture filter is configured with `SCContentFilter(desktopIndependentWindow:)` targeting **only that specific window ID**.
-- Topmost does **not** capture your entire display, desktop icons, or other windows.
-- When a window is unpinned or closed, the stream is stopped and released immediately.
+- The capture filter is `SCContentFilter(desktopIndependentWindow:)` for one window ID. Topmost does not capture your display, your desktop or other windows.
+- Frames go straight from the capture stream to the screen. They are not saved, encoded or sent anywhere.
+- The stream stops as soon as you unpin the window, the window closes, or the app quits.
 
----
+## Granting the permissions
 
-## How to Grant Permissions
+1. Open **System Settings > Privacy & Security**.
+2. Under **Accessibility**, turn on **Topmost**.
+3. Under **Screen Recording**, turn on **Topmost**.
+4. Relaunch Topmost if macOS asks.
 
-When launched for the first time, Topmost prompts for permissions. You can also grant them manually:
+The **Permissions** tab in Topmost Settings shows the live status of both and has a **Re-check Permissions** button. Pinning with a permission missing opens that tab.
 
-1. Open **System Settings** on your Mac.
-2. Navigate to **Privacy & Security**.
-3. Under **Accessibility**, enable **Topmost**.
-4. Under **Screen Recording**, enable **Topmost**.
-5. Relaunch Topmost if prompted by macOS.
+## Permissions disappear after an update or a rebuild
+
+macOS ties a permission to the app's code signature. Topmost releases are signed ad hoc, which means the signature is a hash of the exact binary, so a new version counts as a new app and macOS asks again. To fix a stale entry:
+
+1. Open the relevant list in **System Settings > Privacy & Security**.
+2. Select **Topmost** and press the minus button to remove it.
+3. Relaunch Topmost and grant the permission again.
+
+**If you build Topmost yourself**, run `./scripts/setup-signing.sh` once. It creates a local signing identity, and `./scripts/package.sh` uses it, so macOS keeps your approvals across rebuilds. See [CONTRIBUTING.md](../CONTRIBUTING.md#signing-your-own-builds).
+
+A stale permission is also the usual reason a pin disappears right after you create it. See [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
+
+## What the app can see
+
+Topmost has no way to read the contents of a window beyond the pixels it shows in the mirror, and does not look at them. It reads a window's title, position and size through Accessibility, and uses the title only to label the window in the menu.

@@ -1,50 +1,71 @@
-name: Bug Report
-description: File a bug report to help improve Topmost
+name: Bug report
+description: Something in Topmost does not work as expected
 labels: ["bug"]
 body:
   - type: markdown
     attributes:
       value: |
-        Thanks for taking the time to report a bug!
+        Thanks for taking the time to report this. Please check the [troubleshooting guide](https://github.com/jadhavgaurav/topmost/blob/main/docs/TROUBLESHOOTING.md) first. A stale permission causes most problems, and removing Topmost from Accessibility and Screen Recording and granting both again often fixes them.
+  - type: input
+    id: topmost-version
+    attributes:
+      label: Topmost version
+      description: Shown on the About tab in Settings.
+      placeholder: "0.2.0 (2)"
+    validations:
+      required: true
   - type: input
     id: macos-version
     attributes:
-      label: macOS Version
-      description: What version of macOS are you running? (e.g. macOS 14.5 Sonoma, macOS 15.0 Sequoia)
-      placeholder: macOS 14.x
+      label: macOS version
+      placeholder: "macOS 15.1 Sequoia"
     validations:
       required: true
   - type: dropdown
     id: architecture
     attributes:
-      label: Architecture
+      label: Mac
       options:
-        - Apple Silicon (M1/M2/M3/M4)
-        - Intel (x86_64)
+        - Apple Silicon
+        - Intel
+    validations:
+      required: true
+  - type: input
+    id: app
+    attributes:
+      label: App whose window you pinned
+      placeholder: "Safari, Terminal, TextEdit..."
+  - type: dropdown
+    id: permissions
+    attributes:
+      label: Permissions
+      description: What the Permissions tab in Settings shows.
+      options:
+        - Both Accessibility and Screen Recording are granted
+        - One or both are missing
+        - I am not sure
     validations:
       required: true
   - type: textarea
     id: what-happened
     attributes:
       label: What happened?
-      description: A clear and concise description of what the bug is.
+      description: What you saw, and what you expected instead.
     validations:
       required: true
   - type: textarea
-    id: steps-to-reproduce
+    id: steps
     attributes:
       label: Steps to reproduce
-      description: Exact steps to reproduce the behavior.
       value: |
-        1. Open application '...'
-        2. Press 'Control + Command + P'
+        1. Open '...'
+        2. Press Control + Command + P
         3. ...
     validations:
       required: true
   - type: textarea
-    id: expected-behavior
+    id: log
     attributes:
-      label: Expected behavior
-      description: What did you expect to happen?
-    validations:
-      required: true
+      label: Log lines
+      description: Optional. Lines starting with [Topmost] help a lot. See the troubleshooting guide for how to capture them.
+      render: shell
