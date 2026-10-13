@@ -80,7 +80,6 @@ public final class FloatingWindowController: NSObject, WindowCaptureManagerDeleg
     public var isUserMovingWindow: Bool { gesture?.didDrag == true }
 
     private static let resizeDebounce: TimeInterval = 0.1
-    private static let axMessagingTimeout: Float = 0.5
 
     private var panel: NSPanel?
     private var mirrorView: FloatingMirrorView?
@@ -130,7 +129,7 @@ public final class FloatingWindowController: NSObject, WindowCaptureManagerDeleg
         p.hasShadow = true
         p.level = .floating
         p.ignoresMouseEvents = true
-        p.collectionBehavior = settings.showAcrossSpaces ? [.canJoinAllSpaces, .fullScreenAuxiliary] : [.moveToActiveSpace, .fullScreenAuxiliary]
+        p.collectionBehavior = settings.overlayCollectionBehavior
 
         let view = FloatingMirrorView(frame: p.contentView?.bounds ?? .zero)
         view.autoresizingMask = [.width, .height]
@@ -206,7 +205,7 @@ public final class FloatingWindowController: NSObject, WindowCaptureManagerDeleg
     /// Update space behavior when settings change
     public func refreshSpaceBehavior() {
         guard let panel = panel else { return }
-        panel.collectionBehavior = settings.showAcrossSpaces ? [.canJoinAllSpaces, .fullScreenAuxiliary] : [.moveToActiveSpace, .fullScreenAuxiliary]
+        panel.collectionBehavior = settings.overlayCollectionBehavior
     }
 
     /// Refresh capture stream performance parameters
@@ -254,13 +253,9 @@ public final class FloatingWindowController: NSObject, WindowCaptureManagerDeleg
     /// True when the pinned window is the focused window of its application.
     private func isSourceWindowFocused() -> Bool {
         guard let element = axElement else { return true }
-        let appElement = AXUIElementCreateApplication(identity.processID)
-        AXUIElementSetMessagingTimeout(appElement, Self.axMessagingTimeout)
-
-        var focused: AnyObject?
-        guard AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &focused) == .success,
-              let window = focused else { return false }
-        return CFEqual(window, element)
+        let appElement = Accessibility.applicationElement(pid: identity.processID)
+        guard let focused = Accessibility.copyAttribute(appElement, kAXFocusedWindowAttribute) else { return false }
+        return CFEqual(focused, element)
     }
 
     // MARK: - Interaction forwarding
@@ -371,14 +366,7 @@ public final class FloatingWindowController: NSObject, WindowCaptureManagerDeleg
 
     private func sourceWindowOrigin() -> CGPoint? {
         guard let element = axElement else { return nil }
-        var value: AnyObject?
-        guard AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &value) == .success,
-              let raw = value,
-              CFGetTypeID(raw) == AXValueGetTypeID() else { return nil }
-
-        var origin = CGPoint.zero
-        guard AXValueGetValue(raw as! AXValue, .cgPoint, &origin) else { return nil }
-        return origin
+        return Accessibility.point(from: Accessibility.copyAttribute(element, kAXPositionAttribute))
     }
 
     private func setSourceWindowOrigin(_ origin: CGPoint) {
@@ -394,8 +382,7 @@ public final class FloatingWindowController: NSObject, WindowCaptureManagerDeleg
     /// frontmost app, which Topmost never is. Setting AXFrontmost through the Accessibility API
     /// is not subject to that restriction.
     public func bringSourceToForeground() {
-        let appElement = AXUIElementCreateApplication(identity.processID)
-        AXUIElementSetMessagingTimeout(appElement, Self.axMessagingTimeout)
+        let appElement = Accessibility.applicationElement(pid: identity.processID)
         let frontmostResult = AXUIElementSetAttributeValue(appElement, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
 
         if frontmostResult != .success, let app = NSRunningApplication(processIdentifier: identity.processID) {

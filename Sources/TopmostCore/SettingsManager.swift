@@ -4,8 +4,8 @@ import Carbon
 
 /// Overlay interaction behavior when clicking the floating representation.
 public enum OverlayClickBehavior: String, CaseIterable, Identifiable, Codable, Sendable {
-    case bringSourceForward = "bringSourceForward"
-    case forwardClick = "forwardClick"
+    case bringSourceForward
+    case forwardClick
 
     public var id: String { rawValue }
 

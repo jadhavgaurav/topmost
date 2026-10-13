@@ -128,7 +128,7 @@ public final class WindowObserver {
             obs = existing
         } else {
             var newObserver: AXObserver?
-            let err = AXObserverCreate(pid, { (observer, element, notification, refcon) in
+            let err = AXObserverCreate(pid, { (_, element, notification, refcon) in
                 guard let refcon = refcon else { return }
                 let observerSelf = Unmanaged<WindowObserver>.fromOpaque(refcon).takeUnretainedValue()
                 observerSelf.handleAXNotification(notification: notification as String, element: element)

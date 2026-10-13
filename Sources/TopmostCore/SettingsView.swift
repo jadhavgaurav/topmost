@@ -127,13 +127,19 @@ struct GeneralSettingsTab: View {
 struct AppearanceFeedbackTab: View {
     @ObservedObject var settings: SettingsManager
 
-    let presetColors: [(name: String, hex: String, color: Color)] = [
-        ("Blue (Default)", "#007AFF", Color(red: 0.0, green: 0.48, blue: 1.0)),
-        ("Green", "#34C759", Color(red: 0.2, green: 0.78, blue: 0.35)),
-        ("Orange", "#FF9500", Color(red: 1.0, green: 0.58, blue: 0.0)),
-        ("Purple", "#AF52DE", Color(red: 0.69, green: 0.32, blue: 0.87)),
-        ("Yellow", "#FFCC00", Color(red: 1.0, green: 0.8, blue: 0.0)),
-        ("Red", "#FF3B30", Color(red: 1.0, green: 0.23, blue: 0.19))
+    struct PresetColor {
+        let name: String
+        let hex: String
+        let color: Color
+    }
+
+    let presetColors: [PresetColor] = [
+        PresetColor(name: "Blue (Default)", hex: "#007AFF", color: Color(red: 0.0, green: 0.48, blue: 1.0)),
+        PresetColor(name: "Green", hex: "#34C759", color: Color(red: 0.2, green: 0.78, blue: 0.35)),
+        PresetColor(name: "Orange", hex: "#FF9500", color: Color(red: 1.0, green: 0.58, blue: 0.0)),
+        PresetColor(name: "Purple", hex: "#AF52DE", color: Color(red: 0.69, green: 0.32, blue: 0.87)),
+        PresetColor(name: "Yellow", hex: "#FFCC00", color: Color(red: 1.0, green: 0.8, blue: 0.0)),
+        PresetColor(name: "Red", hex: "#FF3B30", color: Color(red: 1.0, green: 0.23, blue: 0.19))
     ]
 
     var body: some View {
@@ -314,7 +320,10 @@ struct PermissionsTab: View {
                             Text("How to enable:")
                                 .font(.subheadline.bold())
                         }
-                        Text("Click \"Grant Permission\" above to open macOS System Settings, then switch Topmost to ON. Once granted, status updates automatically.")
+                        Text(
+                            "Click \"Grant Permission\" above to open macOS System Settings, then switch Topmost to ON. "
+                            + "Once granted, status updates automatically."
+                        )
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
@@ -353,7 +362,7 @@ struct AboutTab: View {
             VStack(spacing: 4) {
                 Text("Topmost")
                     .font(.title2.bold())
-                Text("Version 0.1.0")
+                Text("Version \(AppInfo.versionDescription)")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
                 Text("Always on Top Utility for macOS")

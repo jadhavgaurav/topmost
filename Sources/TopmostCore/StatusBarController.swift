@@ -85,28 +85,39 @@ public final class StatusBarController: NSObject, NSMenuDelegate {
     public func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
 
-        // 1. App Title Header
         let titleItem = NSMenuItem(title: "Topmost", action: nil, keyEquivalent: "")
         titleItem.isEnabled = false
         menu.addItem(titleItem)
-
         menu.addItem(NSMenuItem.separator())
 
-        // 2. Pin/Unpin Current Window Action
-        let shortcutStr = HotkeyManager.stringRepresentation(
+        menu.addItem(makeToggleItem())
+        menu.addItem(makePinnedWindowsItem())
+        menu.addItem(makeUnpinAllItem())
+        menu.addItem(NSMenuItem.separator())
+
+        menu.addItem(makeItem(title: "Settings…", action: #selector(openSettingsAction), key: ","))
+        menu.addItem(makeItem(title: "About Topmost", action: #selector(openAboutAction)))
+        menu.addItem(NSMenuItem.separator())
+        menu.addItem(makeItem(title: "Quit Topmost", action: #selector(quitAction), key: "q"))
+    }
+
+    private func makeItem(title: String, action: Selector, key: String = "") -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
+        item.target = self
+        return item
+    }
+
+    private func makeToggleItem() -> NSMenuItem {
+        let shortcut = HotkeyManager.stringRepresentation(
             modifiers: settings.hotkeyModifiers,
             keyCode: settings.hotkeyCode
         )
-        let toggleItem = NSMenuItem(
-            title: "Pin / Unpin Current Window",
-            action: #selector(togglePinAction),
-            keyEquivalent: ""
-        )
-        toggleItem.target = self
-        toggleItem.toolTip = "Toggle Always on Top for focused window (\(shortcutStr))"
-        menu.addItem(toggleItem)
+        let item = makeItem(title: "Pin / Unpin Current Window", action: #selector(togglePinAction))
+        item.toolTip = "Toggle Always on Top for focused window (\(shortcut))"
+        return item
+    }
 
-        // 3. Pinned Windows Submenu
+    private func makePinnedWindowsItem() -> NSMenuItem {
         let pinnedItem = NSMenuItem(title: "Pinned Windows", action: nil, keyEquivalent: "")
         let subMenu = NSMenu()
 
@@ -116,60 +127,24 @@ public final class StatusBarController: NSObject, NSMenuDelegate {
             subMenu.addItem(emptyItem)
         } else {
             for identity in pinManager.pinnedIdentities {
-                let winTitle = identity.windowTitle.isEmpty ? identity.applicationName : identity.windowTitle
-                let item = NSMenuItem(
-                    title: "\(identity.applicationName) – \(winTitle)",
-                    action: #selector(unpinSpecificWindow(_:)),
-                    keyEquivalent: ""
+                let windowTitle = identity.windowTitle.isEmpty ? identity.applicationName : identity.windowTitle
+                let item = makeItem(
+                    title: "\(identity.applicationName) – \(windowTitle)",
+                    action: #selector(unpinSpecificWindow(_:))
                 )
-                item.target = self
                 item.representedObject = identity
                 subMenu.addItem(item)
             }
         }
+
         pinnedItem.submenu = subMenu
-        menu.addItem(pinnedItem)
+        return pinnedItem
+    }
 
-        // 4. Unpin All
-        let unpinAllItem = NSMenuItem(
-            title: "Unpin All Windows",
-            action: #selector(unpinAllAction),
-            keyEquivalent: ""
-        )
-        unpinAllItem.target = self
-        unpinAllItem.isEnabled = !pinManager.pinnedIdentities.isEmpty
-        menu.addItem(unpinAllItem)
-
-        menu.addItem(NSMenuItem.separator())
-
-        // 5. Settings
-        let settingsItem = NSMenuItem(
-            title: "Settings…",
-            action: #selector(openSettingsAction),
-            keyEquivalent: ","
-        )
-        settingsItem.target = self
-        menu.addItem(settingsItem)
-
-        // 6. About
-        let aboutItem = NSMenuItem(
-            title: "About Topmost",
-            action: #selector(openAboutAction),
-            keyEquivalent: ""
-        )
-        aboutItem.target = self
-        menu.addItem(aboutItem)
-
-        menu.addItem(NSMenuItem.separator())
-
-        // 7. Quit
-        let quitItem = NSMenuItem(
-            title: "Quit Topmost",
-            action: #selector(quitAction),
-            keyEquivalent: "q"
-        )
-        quitItem.target = self
-        menu.addItem(quitItem)
+    private func makeUnpinAllItem() -> NSMenuItem {
+        let item = makeItem(title: "Unpin All Windows", action: #selector(unpinAllAction))
+        item.isEnabled = !pinManager.pinnedIdentities.isEmpty
+        return item
     }
 
     @objc private func togglePinAction() {

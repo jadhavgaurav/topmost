@@ -35,9 +35,27 @@ print("========================================")
 // MARK: - Test 1: Window Identity Matching & Deterministic Hashing
 print("\n[Test 1] Window Identity Matching & Deterministic Hashing")
 do {
-    let id1 = WindowIdentity(processID: 100, windowID: 501, bundleIdentifier: "com.apple.TextEdit", applicationName: "TextEdit", windowTitle: "Notes.txt")
-    let id2 = WindowIdentity(processID: 100, windowID: 501, bundleIdentifier: "com.apple.TextEdit", applicationName: "TextEdit", windowTitle: "Renamed Title")
-    let id3 = WindowIdentity(processID: 101, windowID: 502, bundleIdentifier: "com.apple.Safari", applicationName: "Safari", windowTitle: "Apple")
+    let id1 = WindowIdentity(
+        processID: 100,
+        windowID: 501,
+        bundleIdentifier: "com.apple.TextEdit",
+        applicationName: "TextEdit",
+        windowTitle: "Notes.txt"
+    )
+    let id2 = WindowIdentity(
+        processID: 100,
+        windowID: 501,
+        bundleIdentifier: "com.apple.TextEdit",
+        applicationName: "TextEdit",
+        windowTitle: "Renamed Title"
+    )
+    let id3 = WindowIdentity(
+        processID: 101,
+        windowID: 502,
+        bundleIdentifier: "com.apple.Safari",
+        applicationName: "Safari",
+        windowTitle: "Apple"
+    )
 
     assertTest(id1 == id2, "Identities with same PID and windowID are equal")
     assertTest(id1 != id3, "Identities with different PID/WID are not equal")
@@ -109,7 +127,13 @@ do {
 print("\n[Test 5] Pin State Transitions")
 do {
     let pinManager = testPinManager
-    let id = WindowIdentity(processID: 2001, windowID: 9001, bundleIdentifier: "com.test.app", applicationName: "TestApp", windowTitle: "TestWin")
+    let id = WindowIdentity(
+        processID: 2001,
+        windowID: 9001,
+        bundleIdentifier: "com.test.app",
+        applicationName: "TestApp",
+        windowTitle: "TestWin"
+    )
     let info = WindowInfo(identity: id, frame: CGRect(x: 10, y: 10, width: 300, height: 200))
 
     assertTest(!pinManager.isPinned(id), "Window initially not pinned")
@@ -150,8 +174,20 @@ do {
 print("\n[Test 7] Unpin Most Recent")
 do {
     let pinManager = testPinManager
-    let idFirst = WindowIdentity(processID: 4001, windowID: 201, bundleIdentifier: "first.app", applicationName: "FirstApp", windowTitle: "First")
-    let idSecond = WindowIdentity(processID: 4002, windowID: 202, bundleIdentifier: "second.app", applicationName: "SecondApp", windowTitle: "Second")
+    let idFirst = WindowIdentity(
+        processID: 4001,
+        windowID: 201,
+        bundleIdentifier: "first.app",
+        applicationName: "FirstApp",
+        windowTitle: "First"
+    )
+    let idSecond = WindowIdentity(
+        processID: 4002,
+        windowID: 202,
+        bundleIdentifier: "second.app",
+        applicationName: "SecondApp",
+        windowTitle: "Second"
+    )
 
     let info1 = WindowInfo(identity: idFirst, frame: CGRect(x: 0, y: 0, width: 100, height: 100))
     let info2 = WindowInfo(identity: idSecond, frame: CGRect(x: 50, y: 50, width: 100, height: 100))
@@ -171,7 +207,13 @@ do {
 print("\n[Test 8] Repeated Rapid Pin / Unpin Cycles")
 do {
     let pinManager = testPinManager
-    let id = WindowIdentity(processID: 5001, windowID: 301, bundleIdentifier: "rapid.app", applicationName: "RapidApp", windowTitle: "Rapid")
+    let id = WindowIdentity(
+        processID: 5001,
+        windowID: 301,
+        bundleIdentifier: "rapid.app",
+        applicationName: "RapidApp",
+        windowTitle: "Rapid"
+    )
     let info = WindowInfo(identity: id, frame: CGRect(x: 0, y: 0, width: 100, height: 100))
 
     for _ in 1...10 {
@@ -278,7 +320,13 @@ do {
 print("\n[Test 15] Window Observer Reports Vanished Windows")
 do {
     let observer = WindowObserver()
-    let ghost = WindowIdentity(processID: 1, windowID: 0x7FFF_FFF0, bundleIdentifier: "ghost.app", applicationName: "Ghost", windowTitle: "Ghost")
+    let ghost = WindowIdentity(
+        processID: 1,
+        windowID: 0x7FFF_FFF0,
+        bundleIdentifier: "ghost.app",
+        applicationName: "Ghost",
+        windowTitle: "Ghost"
+    )
     var closedIdentity: WindowIdentity?
     var moveCount = 0
 
@@ -345,6 +393,13 @@ do {
     migrated.overlayClickBehavior = .bringSourceForward
     let reloaded = SettingsManager(defaults: suite)
     assertTest(reloaded.overlayClickBehavior == .bringSourceForward, "A choice made after migration is preserved")
+}
+
+// MARK: - Test 18: Version Description Falls Back Outside An App Bundle
+print("\n[Test 18] Version Description")
+do {
+    assertTest(!AppInfo.versionDescription.isEmpty, "Version description is never empty")
+    assertTest(AppInfo.versionDescription == "development", "Running outside an app bundle reports development")
 }
 
 print("\n========================================")

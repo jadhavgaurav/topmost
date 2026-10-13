@@ -5,13 +5,16 @@ import CoreGraphics
 @_silgen_name("_AXUIElementGetWindow")
 private func _AXUIElementGetWindow(_ element: AXUIElement, _ wid: UnsafeMutablePointer<CGWindowID>) -> AXError
 
+/// A window found by `WindowDetector`, with the accessibility element used to track and raise it.
+public struct DetectedWindow {
+    public let identity: WindowIdentity
+    public let info: WindowInfo
+    public let element: AXUIElement
+}
+
 /// Responsible for detecting the frontmost application and identifying its focused window.
 public final class WindowDetector {
     public static let shared = WindowDetector()
-
-    /// Accessibility calls block the calling thread until the target app answers (6s by default).
-    /// A frozen target app must never be able to freeze Topmost's overlays with it.
-    private static let axMessagingTimeout: Float = 0.5
 
     private var lastNonTopmostApp: NSRunningApplication?
     private var workspaceObserver: NSObjectProtocol?
@@ -50,7 +53,8 @@ public final class WindowDetector {
             return last
         }
         // Fallback: inspect on-screen window list to find the frontmost non-Topmost application
-        if let windowList = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] {
+        let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
+        if let windowList = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] {
             for entry in windowList {
                 let layer = (entry[kCGWindowLayer as String] as? NSNumber)?.intValue ?? (entry[kCGWindowLayer as String] as? Int) ?? -1
                 guard layer == 0 else { continue }
@@ -67,7 +71,7 @@ public final class WindowDetector {
     }
 
     /// Detects the currently focused window across all applications.
-    public func detectFocusedWindow() -> (identity: WindowIdentity, info: WindowInfo, element: AXUIElement)? {
+    public func detectFocusedWindow() -> DetectedWindow? {
         let myPID = ProcessInfo.processInfo.processIdentifier
         guard let frontApp = resolveTargetApp(), frontApp.processIdentifier != myPID else {
             NSLog("[Topmost] No target application could be resolved.")
@@ -75,95 +79,62 @@ public final class WindowDetector {
         }
 
         let pid = frontApp.processIdentifier
-        let bundleID = frontApp.bundleIdentifier ?? "unknown.\(pid)"
+        let appElement = Accessibility.applicationElement(pid: pid)
+
+        guard let winElement = focusedWindowElement(of: appElement) else { return nil }
+        AXUIElementSetMessagingTimeout(winElement, Accessibility.messagingTimeout)
+
+        // Frame from Accessibility (AX coordinates: origin at top-left of the main screen)
+        guard let axPoint = Accessibility.point(from: Accessibility.copyAttribute(winElement, kAXPositionAttribute)),
+              let axSize = Accessibility.size(from: Accessibility.copyAttribute(winElement, kAXSizeAttribute)),
+              axSize.width > 30, axSize.height > 30 else {
+            return nil
+        }
+
+        let windowID = resolveWindowID(of: winElement, pid: pid, axFrame: CGRect(origin: axPoint, size: axSize))
+        guard windowID != 0 else { return nil }
+
         let appName = frontApp.localizedName ?? "Application"
-
-        let appElement = AXUIElementCreateApplication(pid)
-        AXUIElementSetMessagingTimeout(appElement, Self.axMessagingTimeout)
-
-        // 1. Query kAXFocusedWindowAttribute
-        var windowValue: AnyObject?
-        var axResult = AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &windowValue)
-
-        // Fallback: try kAXMainWindowAttribute if focused window is nil
-        if axResult != .success || windowValue == nil {
-            axResult = AXUIElementCopyAttributeValue(appElement, kAXMainWindowAttribute as CFString, &windowValue)
-        }
-
-        guard axResult == .success,
-              let winObj = windowValue,
-              CFGetTypeID(winObj) == AXUIElementGetTypeID() else {
-            return nil
-        }
-
-        let winElement = winObj as! AXUIElement
-        AXUIElementSetMessagingTimeout(winElement, Self.axMessagingTimeout)
-
-        // 2. Query title
-        var titleValue: AnyObject?
-        var title = ""
-        if AXUIElementCopyAttributeValue(winElement, kAXTitleAttribute as CFString, &titleValue) == .success,
-           let t = titleValue as? String {
-            title = t
-        }
-        if title.isEmpty {
-            title = appName
-        }
-
-        // 3. Query frame from Accessibility (AX coordinates: origin at top-left of main screen)
-        var posValue: AnyObject?
-        var sizeValue: AnyObject?
-        var axPoint = CGPoint.zero
-        var axSize = CGSize.zero
-
-        if AXUIElementCopyAttributeValue(winElement, kAXPositionAttribute as CFString, &posValue) == .success,
-           let val = posValue,
-           CFGetTypeID(val) == AXValueGetTypeID(),
-           AXValueGetType(val as! AXValue) == .cgPoint {
-            AXValueGetValue(val as! AXValue, .cgPoint, &axPoint)
-        }
-
-        if AXUIElementCopyAttributeValue(winElement, kAXSizeAttribute as CFString, &sizeValue) == .success,
-           let val = sizeValue,
-           CFGetTypeID(val) == AXValueGetTypeID(),
-           AXValueGetType(val as! AXValue) == .cgSize {
-            AXValueGetValue(val as! AXValue, .cgSize, &axSize)
-        }
-
-        guard axSize.width > 30, axSize.height > 30 else {
-            return nil
-        }
-
-        let cocoaFrame = axFrameToCocoaFrame(axPoint: axPoint, axSize: axSize)
-
-        // 4. Resolve CGWindowID
-        var wid: CGWindowID = 0
-        let getWidErr = _AXUIElementGetWindow(winElement, &wid)
-        if getWidErr != .success || wid == 0 {
-            wid = resolveWindowIDFromCGWindowList(pid: pid, axFrame: CGRect(origin: axPoint, size: axSize))
-        }
-
-        guard wid != 0 else {
-            return nil
-        }
-
         let identity = WindowIdentity(
             processID: pid,
-            windowID: wid,
-            bundleIdentifier: bundleID,
+            windowID: windowID,
+            bundleIdentifier: frontApp.bundleIdentifier ?? "unknown.\(pid)",
             applicationName: appName,
-            windowTitle: title
+            windowTitle: windowTitle(of: winElement, fallback: appName)
         )
 
         let info = WindowInfo(
             identity: identity,
-            frame: cocoaFrame,
+            frame: axFrameToCocoaFrame(axPoint: axPoint, axSize: axSize),
             isMinimized: false,
             isOnScreen: true,
             windowLayer: 0
         )
 
-        return (identity, info, winElement)
+        return DetectedWindow(identity: identity, info: info, element: winElement)
+    }
+
+    /// The focused window, falling back to the main window when the app reports no focused one.
+    private func focusedWindowElement(of appElement: AXUIElement) -> AXUIElement? {
+        if let focused = Accessibility.element(from: Accessibility.copyAttribute(appElement, kAXFocusedWindowAttribute)) {
+            return focused
+        }
+        return Accessibility.element(from: Accessibility.copyAttribute(appElement, kAXMainWindowAttribute))
+    }
+
+    private func windowTitle(of element: AXUIElement, fallback: String) -> String {
+        guard let title = Accessibility.copyAttribute(element, kAXTitleAttribute) as? String, !title.isEmpty else {
+            return fallback
+        }
+        return title
+    }
+
+    private func resolveWindowID(of element: AXUIElement, pid: pid_t, axFrame: CGRect) -> CGWindowID {
+        var windowID: CGWindowID = 0
+        if _AXUIElementGetWindow(element, &windowID) == .success, windowID != 0 {
+            return windowID
+        }
+        return resolveWindowIDFromCGWindowList(pid: pid, axFrame: axFrame)
     }
 
     /// Converts AX top-left coordinates to Cocoa bottom-left coordinates

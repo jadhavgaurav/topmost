@@ -59,7 +59,7 @@ public final class OutlineOverlayController {
         p.ignoresMouseEvents = true
         // Outline window must sit above the floating mirror window (floating.rawValue + 1)
         p.level = NSWindow.Level(rawValue: NSWindow.Level.floating.rawValue + 1)
-        p.collectionBehavior = settings.showAcrossSpaces ? [.canJoinAllSpaces, .fullScreenAuxiliary] : [.moveToActiveSpace, .fullScreenAuxiliary]
+        p.collectionBehavior = settings.overlayCollectionBehavior
 
         let view = OutlineView(frame: p.contentView?.bounds ?? .zero)
         view.autoresizingMask = [.width, .height]
@@ -98,7 +98,7 @@ public final class OutlineOverlayController {
     /// Update space behavior when settings change
     public func refreshSpaceBehavior() {
         guard let panel = panel else { return }
-        panel.collectionBehavior = settings.showAcrossSpaces ? [.canJoinAllSpaces, .fullScreenAuxiliary] : [.moveToActiveSpace, .fullScreenAuxiliary]
+        panel.collectionBehavior = settings.overlayCollectionBehavior
     }
 
     private func applySettings(to view: OutlineView) {

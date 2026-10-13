@@ -51,7 +51,8 @@ public final class WindowCaptureManager: NSObject, SCStreamOutput, SCStreamDeleg
         let filter = SCContentFilter(desktopIndependentWindow: targetWindow)
 
         // 3. Create and start stream
-        let newStream = SCStream(filter: filter, configuration: makeConfiguration(size: initialSize, scaleFactor: scaleFactor), delegate: self)
+        let configuration = makeConfiguration(size: initialSize, scaleFactor: scaleFactor)
+        let newStream = SCStream(filter: filter, configuration: configuration, delegate: self)
         try newStream.addStreamOutput(self, type: .screen, sampleHandlerQueue: captureQueue)
         try await newStream.startCapture()
 
