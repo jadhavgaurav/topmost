@@ -21,18 +21,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // 3. Setup Status Bar Controller
         StatusBarController.shared.setup(
             onOpenSettings: {
-                SettingsWindowController.shared.showSettings()
+                SettingsWindowController.shared.showSettings(initialTab: 0)
             },
             onOpenAbout: {
-                SettingsWindowController.shared.showSettings()
+                SettingsWindowController.shared.showSettings(initialTab: 4)
             }
         )
 
-        // 4. If permissions are missing on first run, show settings to guide user
+        // 4. Show the settings window on launch
+        let hasAllPermissions = PermissionManager.shared.hasAccessibilityPermission && PermissionManager.shared.hasScreenRecordingPermission
+        let initialTab = hasAllPermissions ? 0 : 3
+        SettingsWindowController.shared.showSettings(initialTab: initialTab)
+
+        // 5. If permissions are missing on first run, prompt user
         if !PermissionManager.shared.hasAccessibilityPermission {
             NSLog("[Topmost] Accessibility permission missing, prompting...")
             PermissionManager.shared.requestAccessibility()
         }
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        SettingsWindowController.shared.showSettings(initialTab: 0)
+        return true
     }
 
     func applicationWillTerminate(_ notification: Notification) {

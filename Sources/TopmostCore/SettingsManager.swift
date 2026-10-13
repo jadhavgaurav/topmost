@@ -12,9 +12,9 @@ public enum OverlayClickBehavior: String, CaseIterable, Identifiable, Codable, S
     public var displayName: String {
         switch self {
         case .bringSourceForward:
-            return "Bring Real Window Forward (Recommended)"
+            return "Bring Real Window Forward Only"
         case .forwardClick:
-            return "Forward Mouse Clicks (Experimental)"
+            return "Bring Forward and Pass Click Through (Recommended)"
         }
     }
 }
@@ -44,12 +44,25 @@ public final class SettingsManager: ObservableObject {
         static let soundVolume = "topmost.soundVolume"
         static let maxFrameRate = "topmost.maxFrameRate"
         static let lowResourceMode = "topmost.lowResourceMode"
+        static let schemaVersion = "topmost.settingsSchemaVersion"
     }
+
+    /// Bump when a default changes in a way that must override values persisted by older builds.
+    /// Version 2: the overlay click default changed to passing the click through. Earlier builds
+    /// saved their old default on every launch, which would otherwise mask the new one forever.
+    private static let currentSchemaVersion = 2
 
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         registerDefaults()
+        migrateIfNeeded()
         loadSettings()
+    }
+
+    private func migrateIfNeeded() {
+        guard defaults.integer(forKey: Keys.schemaVersion) < Self.currentSchemaVersion else { return }
+        defaults.removeObject(forKey: Keys.overlayClickBehavior)
+        defaults.set(Self.currentSchemaVersion, forKey: Keys.schemaVersion)
     }
 
     private func registerDefaults() {
@@ -62,7 +75,7 @@ public final class SettingsManager: ObservableObject {
             Keys.unpinRecentCode: 32, // 'U'
             Keys.showMenuBarIcon: true,
             Keys.multiWindowPinning: true,
-            Keys.overlayClickBehavior: OverlayClickBehavior.bringSourceForward.rawValue,
+            Keys.overlayClickBehavior: OverlayClickBehavior.forwardClick.rawValue,
             Keys.showAcrossSpaces: true,
             Keys.showOutline: true,
             Keys.outlineColorHex: "#007AFF",
@@ -87,7 +100,7 @@ public final class SettingsManager: ObservableObject {
            let behavior = OverlayClickBehavior(rawValue: raw) {
             self.overlayClickBehavior = behavior
         } else {
-            self.overlayClickBehavior = .bringSourceForward
+            self.overlayClickBehavior = .forwardClick
         }
         self.showAcrossSpaces = defaults.bool(forKey: Keys.showAcrossSpaces)
         self.showOutline = defaults.bool(forKey: Keys.showOutline)
@@ -132,7 +145,7 @@ public final class SettingsManager: ObservableObject {
         didSet { defaults.set(multiWindowPinning, forKey: Keys.multiWindowPinning) }
     }
 
-    @Published public var overlayClickBehavior: OverlayClickBehavior = .bringSourceForward {
+    @Published public var overlayClickBehavior: OverlayClickBehavior = .forwardClick {
         didSet { defaults.set(overlayClickBehavior.rawValue, forKey: Keys.overlayClickBehavior) }
     }
 
@@ -194,5 +207,11 @@ public final class SettingsManager: ObservableObject {
         }
         registerDefaults()
         loadSettings()
+
+        LoginItemManager.shared.setEnabled(false)
+        HotkeyManager.shared.registerCurrentHotkeys()
+        PinManager.shared.refreshVisualPreferences()
+        PinManager.shared.refreshSpaceBehavior()
+        PinManager.shared.refreshCaptureSettings()
     }
 }

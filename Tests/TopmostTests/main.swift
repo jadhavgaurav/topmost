@@ -4,6 +4,17 @@ import Cocoa
 import Carbon
 import TopmostCore
 
+/// Deterministic permission source so pin logic is testable without real macOS privacy grants.
+final class GrantedPermissions: PermissionProviding {
+    let hasAccessibilityPermission = true
+    let hasScreenRecordingPermission = true
+    func checkPermissions() {}
+    func requestAccessibility() {}
+    func requestScreenRecording() {}
+}
+
+let testPinManager = PinManager(permissions: GrantedPermissions())
+
 var passedCount = 0
 var failedCount = 0
 
@@ -97,7 +108,7 @@ do {
 // MARK: - Test 5: Pin State Transitions
 print("\n[Test 5] Pin State Transitions")
 do {
-    let pinManager = PinManager.shared
+    let pinManager = testPinManager
     let id = WindowIdentity(processID: 2001, windowID: 9001, bundleIdentifier: "com.test.app", applicationName: "TestApp", windowTitle: "TestWin")
     let info = WindowInfo(identity: id, frame: CGRect(x: 10, y: 10, width: 300, height: 200))
 
@@ -115,7 +126,7 @@ do {
 // MARK: - Test 6: Multiple Pinned Windows & Unpin All
 print("\n[Test 6] Multiple Pinned Windows & Unpin All")
 do {
-    let pinManager = PinManager.shared
+    let pinManager = testPinManager
     let idA = WindowIdentity(processID: 3001, windowID: 101, bundleIdentifier: "app.A", applicationName: "AppA", windowTitle: "WinA")
     let idB = WindowIdentity(processID: 3002, windowID: 102, bundleIdentifier: "app.B", applicationName: "AppB", windowTitle: "WinB")
 
@@ -138,7 +149,7 @@ do {
 // MARK: - Test 7: Unpin Most Recent
 print("\n[Test 7] Unpin Most Recent")
 do {
-    let pinManager = PinManager.shared
+    let pinManager = testPinManager
     let idFirst = WindowIdentity(processID: 4001, windowID: 201, bundleIdentifier: "first.app", applicationName: "FirstApp", windowTitle: "First")
     let idSecond = WindowIdentity(processID: 4002, windowID: 202, bundleIdentifier: "second.app", applicationName: "SecondApp", windowTitle: "Second")
 
@@ -159,7 +170,7 @@ do {
 // MARK: - Test 8: Repeated Rapid Pin / Unpin Cycles (Idempotency & Race Safety)
 print("\n[Test 8] Repeated Rapid Pin / Unpin Cycles")
 do {
-    let pinManager = PinManager.shared
+    let pinManager = testPinManager
     let id = WindowIdentity(processID: 5001, windowID: 301, bundleIdentifier: "rapid.app", applicationName: "RapidApp", windowTitle: "Rapid")
     let info = WindowInfo(identity: id, frame: CGRect(x: 0, y: 0, width: 100, height: 100))
 
@@ -190,6 +201,150 @@ do {
 
     let err2 = PinError.permissionDenied("Accessibility")
     assertTest(err2.localizedDescription.contains("Accessibility"), "Error message specifies permission")
+}
+
+// MARK: - Test 11: Hex Color Parsing Robustness
+print("\n[Test 11] Hex Color Parsing Robustness")
+do {
+    assertTest(NSColor.from(hex: "#007AFF") != nil, "Standard #RRGGBB parsed")
+    assertTest(NSColor.from(hex: "007AFF") != nil, "Hex without hash parsed")
+    assertTest(NSColor.from(hex: "  #ff3b30  ") != nil, "Hex with whitespace and lowercase parsed")
+    assertTest(NSColor.from(hex: "#123") == nil, "Short hex cleanly rejected")
+    assertTest(NSColor.from(hex: "#GGGGGG") == nil, "Invalid hex chars cleanly rejected")
+    assertTest(NSColor.from(hex: "") == nil, "Empty string rejected")
+}
+
+// MARK: - Test 12: Multi-Monitor Coordinate Conversions
+print("\n[Test 12] Multi-Monitor Coordinate Conversions")
+do {
+    let detector = WindowDetector()
+    // Test window located on secondary monitor to the right
+    let secondaryAxPoint = CGPoint(x: 1920, y: 50)
+    let secondaryAxSize = CGSize(width: 800, height: 600)
+    let secondaryCocoa = detector.axFrameToCocoaFrame(axPoint: secondaryAxPoint, axSize: secondaryAxSize)
+    assertTest(secondaryCocoa.origin.x == 1920, "Secondary monitor X coordinate matches")
+
+    let convertedBack = detector.cocoaFrameToAxFrame(cocoaFrame: secondaryCocoa)
+    assertTest(convertedBack.origin.x == secondaryAxPoint.x, "Converted back secondary X matches")
+    assertTest(convertedBack.origin.y == secondaryAxPoint.y, "Converted back secondary Y matches")
+}
+
+// MARK: - Test 13: Settings Reset to Defaults
+print("\n[Test 13] Settings Reset to Defaults")
+do {
+    let suiteName = "com.topmost.tests.reset.\(UUID().uuidString)"
+    let testDefaults = UserDefaults(suiteName: suiteName)!
+    let settings = SettingsManager(defaults: testDefaults)
+
+    settings.outlineThickness = 4.0
+    settings.outlineColorHex = "#FF3B30"
+    settings.soundVolume = 0.3
+    settings.maxFrameRate = 60
+    settings.lowResourceMode = true
+
+    assertTest(settings.outlineThickness == 4.0, "Modified outline thickness persisted")
+    assertTest(settings.outlineColorHex == "#FF3B30", "Modified outline color persisted")
+
+    settings.resetToDefaults()
+
+    assertTest(settings.outlineThickness == 3.0, "Outline thickness reset to default 3.0")
+    assertTest(settings.outlineColorHex == "#007AFF", "Outline color reset to default #007AFF")
+    assertTest(settings.maxFrameRate == 30, "Frame rate reset to default 30")
+    assertTest(!settings.lowResourceMode, "Low resource mode reset to default false")
+    assertTest(settings.soundVolume == 0.8, "Sound volume reset to default 0.8")
+    assertTest(settings.overlayClickBehavior == .forwardClick, "Overlay click behavior defaults to passing the click through")
+}
+
+// MARK: - Test 14: Dynamic Space Behavior & Preferences Propagation
+print("\n[Test 14] Dynamic Space Behavior & Preferences Propagation")
+do {
+    let pinManager = testPinManager
+    let id = WindowIdentity(processID: 6001, windowID: 401, bundleIdentifier: "dyn.app", applicationName: "DynApp", windowTitle: "DynWin")
+    let info = WindowInfo(identity: id, frame: CGRect(x: 100, y: 100, width: 400, height: 300))
+
+    pinManager.pin(identity: id, info: info, element: nil)
+
+    // Test that space behavior and capture preferences propagate cleanly without crashing
+    pinManager.refreshSpaceBehavior()
+    pinManager.refreshCaptureSettings()
+    pinManager.refreshVisualPreferences()
+
+    assertTest(pinManager.isPinned(id), "Window remains pinned throughout dynamic refreshes")
+    pinManager.unpin(id)
+    assertTest(!pinManager.isPinned(id), "Window unpinned cleanly after tests")
+}
+
+// MARK: - Test 15: Window Observer Reports Vanished Windows Without Full-List Scans
+print("\n[Test 15] Window Observer Reports Vanished Windows")
+do {
+    let observer = WindowObserver()
+    let ghost = WindowIdentity(processID: 1, windowID: 0x7FFF_FFF0, bundleIdentifier: "ghost.app", applicationName: "Ghost", windowTitle: "Ghost")
+    var closedIdentity: WindowIdentity?
+    var moveCount = 0
+
+    observer.observe(
+        identity: ghost,
+        axElement: nil,
+        onMoved: { _, _ in moveCount += 1 },
+        onClosed: { closedIdentity = $0 }
+    )
+
+    let deadline = Date().addingTimeInterval(2.0)
+    while closedIdentity == nil && Date() < deadline {
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+    }
+
+    assertTest(closedIdentity == ghost, "Close callback fires for a window that does not exist")
+    assertTest(moveCount == 0, "Move callback never fires for a vanished window")
+}
+
+// MARK: - Test 16: Capture Manager Stop-Before-Start Never Leaves A Running Stream
+print("\n[Test 16] Capture Manager Stop-Before-Start")
+do {
+    let capture = WindowCaptureManager(windowID: 0x7FFF_FFF1)
+    capture.stop()
+
+    var threw = false
+    var finished = false
+    Task {
+        do {
+            try await capture.start(initialSize: CGSize(width: 200, height: 200), scaleFactor: 2.0)
+        } catch {
+            threw = true
+        }
+        finished = true
+    }
+
+    let captureDeadline = Date().addingTimeInterval(5.0)
+    while !finished && Date() < captureDeadline {
+        RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+    }
+
+    assertTest(finished, "start() after stop() completes promptly")
+    assertTest(!threw, "start() after stop() returns quietly instead of probing for the window")
+
+    capture.stop()
+    assertTest(true, "Repeated stop() is safe")
+}
+
+// MARK: - Test 17: Settings Migration Overrides Stale Persisted Defaults
+print("\n[Test 17] Settings Migration")
+do {
+    let suiteName = "topmost.tests.migration.\(UUID().uuidString)"
+    guard let suite = UserDefaults(suiteName: suiteName) else {
+        fatalError("Could not create isolated UserDefaults suite")
+    }
+    defer { suite.removePersistentDomain(forName: suiteName) }
+
+    // A v0.1.0 install: the old default was persisted and no schema version exists.
+    suite.set("bringSourceForward", forKey: "topmost.overlayClickBehavior")
+    let migrated = SettingsManager(defaults: suite)
+    assertTest(migrated.overlayClickBehavior == .forwardClick, "Stale old default is replaced by the new default")
+
+    // After migration, a deliberate user choice must stick.
+    migrated.overlayClickBehavior = .bringSourceForward
+    let reloaded = SettingsManager(defaults: suite)
+    assertTest(reloaded.overlayClickBehavior == .bringSourceForward, "A choice made after migration is preserved")
 }
 
 print("\n========================================")

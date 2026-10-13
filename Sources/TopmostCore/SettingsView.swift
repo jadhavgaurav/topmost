@@ -1,47 +1,61 @@
 import SwiftUI
 
+/// Navigation model managing the currently active tab in Settings.
+public final class SettingsNavigationModel: ObservableObject {
+    public static let shared = SettingsNavigationModel()
+    @Published public var selectedTab: Int = 0
+}
+
 /// Main Settings window container with native macOS tab navigation.
 public struct SettingsView: View {
     @ObservedObject var settings: SettingsManager
     @ObservedObject var permissions: PermissionManager
     @ObservedObject var loginItem: LoginItemManager
+    @ObservedObject var navigation: SettingsNavigationModel
 
     public init(
+        navigation: SettingsNavigationModel = .shared,
         settings: SettingsManager = .shared,
         permissions: PermissionManager = .shared,
         loginItem: LoginItemManager = .shared
     ) {
+        self.navigation = navigation
         self.settings = settings
         self.permissions = permissions
         self.loginItem = loginItem
     }
 
     public var body: some View {
-        TabView {
+        TabView(selection: $navigation.selectedTab) {
             GeneralSettingsTab(settings: settings, loginItem: loginItem)
                 .tabItem {
                     Label("General", systemImage: "gearshape")
                 }
+                .tag(0)
 
             AppearanceFeedbackTab(settings: settings)
                 .tabItem {
                     Label("Appearance", systemImage: "paintbrush")
                 }
+                .tag(1)
 
             WindowBehaviorTab(settings: settings)
                 .tabItem {
                     Label("Behavior", systemImage: "macwindow.on.rectangle")
                 }
+                .tag(2)
 
             PermissionsTab(permissions: permissions)
                 .tabItem {
                     Label("Permissions", systemImage: "hand.raised")
                 }
+                .tag(3)
 
             AboutTab(settings: settings)
                 .tabItem {
                     Label("About", systemImage: "info.circle")
                 }
+                .tag(4)
         }
         .frame(width: 520, height: 420)
         .padding()
@@ -186,6 +200,9 @@ struct WindowBehaviorTab: View {
             Section(header: Text("Pinning & Spaces").font(.headline)) {
                 Toggle("Allow Multiple Pinned Windows", isOn: $settings.multiWindowPinning)
                 Toggle("Keep Pinned Windows Visible Across Spaces", isOn: $settings.showAcrossSpaces)
+                    .onChange(of: settings.showAcrossSpaces) { _, _ in
+                        PinManager.shared.refreshSpaceBehavior()
+                    }
             }
 
             Section(header: Text("Interaction Mode").font(.headline)) {
@@ -207,8 +224,14 @@ struct WindowBehaviorTab: View {
                     Text("30 FPS (Standard)").tag(30)
                     Text("60 FPS (Ultra Smooth)").tag(60)
                 }
+                .onChange(of: settings.maxFrameRate) { _, _ in
+                    PinManager.shared.refreshCaptureSettings()
+                }
 
                 Toggle("Low Resource Mode", isOn: $settings.lowResourceMode)
+                    .onChange(of: settings.lowResourceMode) { _, _ in
+                        PinManager.shared.refreshCaptureSettings()
+                    }
             }
         }
         .formStyle(.grouped)
@@ -239,9 +262,10 @@ struct PermissionsTab: View {
                     Spacer()
 
                     if !permissions.hasAccessibilityPermission {
-                        Button("Open Settings") {
+                        Button("Grant Permission") {
                             permissions.openAccessibilitySettings()
                         }
+                        .buttonStyle(.borderedProminent)
                     } else {
                         Text("Granted")
                             .foregroundColor(.green)
@@ -269,9 +293,10 @@ struct PermissionsTab: View {
                     Spacer()
 
                     if !permissions.hasScreenRecordingPermission {
-                        Button("Open Settings") {
+                        Button("Grant Permission") {
                             permissions.openScreenRecordingSettings()
                         }
+                        .buttonStyle(.borderedProminent)
                     } else {
                         Text("Granted")
                             .foregroundColor(.green)
@@ -279,6 +304,22 @@ struct PermissionsTab: View {
                     }
                 }
                 .padding(.vertical, 4)
+
+                if !permissions.hasAccessibilityPermission || !permissions.hasScreenRecordingPermission {
+                    Divider()
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "info.circle.fill")
+                                .foregroundColor(.accentColor)
+                            Text("How to enable:")
+                                .font(.subheadline.bold())
+                        }
+                        Text("Click \"Grant Permission\" above to open macOS System Settings, then switch Topmost to ON. Once granted, status updates automatically.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.vertical, 4)
+                }
             }
 
             Section {

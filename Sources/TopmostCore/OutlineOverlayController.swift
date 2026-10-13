@@ -57,8 +57,9 @@ public final class OutlineOverlayController {
         p.backgroundColor = .clear
         p.hasShadow = false
         p.ignoresMouseEvents = true
-        p.level = .floating
-        p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        // Outline window must sit above the floating mirror window (floating.rawValue + 1)
+        p.level = NSWindow.Level(rawValue: NSWindow.Level.floating.rawValue + 1)
+        p.collectionBehavior = settings.showAcrossSpaces ? [.canJoinAllSpaces, .fullScreenAuxiliary] : [.moveToActiveSpace, .fullScreenAuxiliary]
 
         let view = OutlineView(frame: p.contentView?.bounds ?? .zero)
         view.autoresizingMask = [.width, .height]
@@ -76,7 +77,11 @@ public final class OutlineOverlayController {
     /// Update outline position and dimensions when source window moves/resizes
     public func updateFrame(_ newFrame: CGRect) {
         guard let panel = panel else { return }
-        panel.setFrame(newFrame, display: true, animate: false)
+        if panel.frame.size == newFrame.size {
+            panel.setFrameOrigin(newFrame.origin)
+        } else {
+            panel.setFrame(newFrame, display: true, animate: false)
+        }
     }
 
     /// Re-apply visual preferences (thickness, color, visibility)
@@ -88,6 +93,12 @@ public final class OutlineOverlayController {
         } else {
             panel.orderOut(nil)
         }
+    }
+
+    /// Update space behavior when settings change
+    public func refreshSpaceBehavior() {
+        guard let panel = panel else { return }
+        panel.collectionBehavior = settings.showAcrossSpaces ? [.canJoinAllSpaces, .fullScreenAuxiliary] : [.moveToActiveSpace, .fullScreenAuxiliary]
     }
 
     private func applySettings(to view: OutlineView) {
@@ -111,9 +122,11 @@ extension NSColor {
             cleanHex.removeFirst()
         }
         guard cleanHex.count == 6 else { return nil }
+        guard cleanHex.allSatisfy({ $0.isHexDigit }) else { return nil }
 
         var rgbValue: UInt64 = 0
-        Scanner(string: cleanHex).scanHexInt64(&rgbValue)
+        let scanner = Scanner(string: cleanHex)
+        guard scanner.scanHexInt64(&rgbValue), scanner.isAtEnd else { return nil }
 
         return NSColor(
             srgbRed: CGFloat((rgbValue & 0xFF0000) >> 16) / 255.0,

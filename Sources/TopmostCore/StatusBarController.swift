@@ -173,7 +173,10 @@ public final class StatusBarController: NSObject, NSMenuDelegate {
     }
 
     @objc private func togglePinAction() {
-        pinManager.togglePinCurrentWindow()
+        // Dispatch with brief delay to allow status menu to dismiss and keyboard/window focus to settle
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+            self?.pinManager.togglePinCurrentWindow()
+        }
     }
 
     @objc private func unpinSpecificWindow(_ sender: NSMenuItem) {

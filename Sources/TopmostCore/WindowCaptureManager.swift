@@ -14,10 +14,15 @@ public final class WindowCaptureManager: NSObject, SCStreamOutput, SCStreamDeleg
     public let windowID: CGWindowID
     public weak var delegate: WindowCaptureManagerDelegate?
 
-    private var stream: SCStream?
     private let captureQueue = DispatchQueue(label: "com.topmost.captureQueue", qos: .userInteractive)
-    private var isRunning = false
     private let settings: SettingsManager
+
+    /// Guards `stream`, `isRunning` and `isStopped`. `start` is async and may be suspended while
+    /// `stop` is called from another thread, so every state transition goes through this lock.
+    private let stateLock = NSLock()
+    private var stream: SCStream?
+    private var isRunning = false
+    private var isStopped = false
 
     public init(windowID: CGWindowID, settings: SettingsManager = .shared) {
         self.windowID = windowID
@@ -29,66 +34,92 @@ public final class WindowCaptureManager: NSObject, SCStreamOutput, SCStreamDeleg
         stop()
     }
 
-    /// Starts ScreenCaptureKit streaming for the specific window
+    /// Starts ScreenCaptureKit streaming for the specific window.
+    /// If `stop()` is called while this is suspended, the half-started stream is torn down
+    /// instead of being left running with nobody to receive its frames.
     public func start(initialSize: CGSize, scaleFactor: CGFloat) async throws {
-        guard !isRunning else { return }
+        guard !isStoppedOrRunning() else { return }
 
         // 1. Locate SCWindow
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
         guard let targetWindow = content.windows.first(where: { $0.windowID == self.windowID }) else {
             throw PinError.captureFailed("Window with ID \(windowID) not found in shareable content")
         }
+        guard !isStoppedOrRunning() else { return }
 
         // 2. Configure content filter strictly for this independent window
         let filter = SCContentFilter(desktopIndependentWindow: targetWindow)
 
-        // 3. Configure stream parameters
-        let config = SCStreamConfiguration()
-        let width = max(Int(initialSize.width * scaleFactor), 32)
-        let height = max(Int(initialSize.height * scaleFactor), 32)
-        config.width = width
-        config.height = height
-        config.pixelFormat = kCVPixelFormatType_32BGRA
-        config.showsCursor = true
-
-        let fps = settings.lowResourceMode ? min(settings.maxFrameRate, 15) : settings.maxFrameRate
-        config.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(fps))
-
-        // 4. Create and start stream
-        let newStream = SCStream(filter: filter, configuration: config, delegate: self)
+        // 3. Create and start stream
+        let newStream = SCStream(filter: filter, configuration: makeConfiguration(size: initialSize, scaleFactor: scaleFactor), delegate: self)
         try newStream.addStreamOutput(self, type: .screen, sampleHandlerQueue: captureQueue)
-
         try await newStream.startCapture()
-        self.stream = newStream
-        self.isRunning = true
+
+        let accepted: Bool = stateLock.withLock {
+            guard !isStopped else { return false }
+            stream = newStream
+            isRunning = true
+            return true
+        }
+
+        if !accepted {
+            try? newStream.removeStreamOutput(self, type: .screen)
+            try? await newStream.stopCapture()
+        }
     }
 
-    /// Update capture stream dimensions when source window resizes
-    public func updateDimensions(size: CGSize, scaleFactor: CGFloat) {
-        guard isRunning, let stream = stream else { return }
+    private func isStoppedOrRunning() -> Bool {
+        stateLock.withLock { isStopped || isRunning }
+    }
+
+    private func makeConfiguration(size: CGSize, scaleFactor: CGFloat) -> SCStreamConfiguration {
         let config = SCStreamConfiguration()
         config.width = max(Int(size.width * scaleFactor), 32)
         config.height = max(Int(size.height * scaleFactor), 32)
         config.pixelFormat = kCVPixelFormatType_32BGRA
         config.showsCursor = true
 
-        let fps = settings.lowResourceMode ? min(settings.maxFrameRate, 15) : settings.maxFrameRate
+        let requested = settings.lowResourceMode ? min(settings.maxFrameRate, 15) : settings.maxFrameRate
+        let fps = max(requested, 1)
         config.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(fps))
+        return config
+    }
 
-        stream.updateConfiguration(config) { error in
+    private func currentStream() -> SCStream? {
+        stateLock.withLock { isRunning ? stream : nil }
+    }
+
+    /// Update capture stream dimensions when source window resizes
+    public func updateDimensions(size: CGSize, scaleFactor: CGFloat) {
+        applyConfiguration(size: size, scaleFactor: scaleFactor, failureContext: "dimensions")
+    }
+
+    /// Dynamically refresh stream frame rate and low resource settings
+    public func refreshConfiguration(size: CGSize, scaleFactor: CGFloat) {
+        applyConfiguration(size: size, scaleFactor: scaleFactor, failureContext: "capture configuration")
+    }
+
+    private func applyConfiguration(size: CGSize, scaleFactor: CGFloat, failureContext: String) {
+        guard let stream = currentStream() else { return }
+        stream.updateConfiguration(makeConfiguration(size: size, scaleFactor: scaleFactor)) { error in
             if let error = error {
-                NSLog("[Topmost] Error updating capture stream dimensions: %@", error.localizedDescription)
+                NSLog("[Topmost] Error updating %@: %@", failureContext, error.localizedDescription)
             }
         }
     }
 
-    /// Stops and releases the capture stream
+    /// Stops and releases the capture stream. Safe to call at any point, including while `start` is in flight.
     public func stop() {
-        guard isRunning else { return }
-        isRunning = false
-        if let s = stream {
+        let activeStream: SCStream? = stateLock.withLock {
+            isStopped = true
+            isRunning = false
+            let s = stream
+            stream = nil
+            return s
+        }
+        if let s = activeStream {
+            try? s.removeStreamOutput(self, type: .screen)
             s.stopCapture { _ in }
-            self.stream = nil
         }
     }
 
@@ -105,7 +136,12 @@ public final class WindowCaptureManager: NSObject, SCStreamOutput, SCStreamDeleg
 
     // MARK: - SCStreamDelegate
     public func stream(_ stream: SCStream, didStopWithError error: Error) {
-        isRunning = false
+        let wasStopped: Bool = stateLock.withLock {
+            let already = isStopped
+            isRunning = false
+            return already
+        }
+        guard !wasStopped else { return }
         delegate?.captureManager(self, didFailWithError: error)
     }
 }
