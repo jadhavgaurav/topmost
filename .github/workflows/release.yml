@@ -1,42 +1,86 @@
 name: Release
 
+# Push a version tag such as v0.2.0 to release. The tag must match the version in
+# Sources/Topmost/Resources/Info.plist and have a matching section in CHANGELOG.md.
+# Run it by hand from the Actions tab to build the artifacts without publishing a release.
+
 on:
   push:
-    tags:
-      - "v*"
+    tags: ["v*"]
   workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  publish-release:
-    name: Build & Publish Release
+  build:
+    name: Build and package
     runs-on: macos-14
     steps:
-      - name: Checkout Tagged Commit
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Show Build Environment
+      - name: Work out the version
+        id: version
         run: |
-          sw_vers
-          uname -m
-          swift --version
+          VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Sources/Topmost/Resources/Info.plist)"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          if [ "${GITHUB_REF_TYPE}" = "tag" ] && [ "${GITHUB_REF_NAME}" != "v${VERSION}" ]; then
+            echo "Tag ${GITHUB_REF_NAME} does not match Info.plist version ${VERSION}" >&2
+            exit 1
+          fi
 
-      - name: Run Test Suite
+      - name: Check the changelog entry
+        run: scripts/release-notes.sh "${{ steps.version.outputs.version }}" > release-notes.md
+
+      - name: Run the test suite
         run: ./scripts/test.sh
 
-      - name: Package Universal Release Artifacts
+      - name: Package universal release artifacts
+        env:
+          TOPMOST_RELEASE: "1"
         run: ./scripts/package.sh
 
-      - name: Upload Release Assets
-        uses: softprops/action-gh-release@v2
+      - name: Check the binary carries both architectures
+        run: |
+          ARCHS="$(lipo -archs build/Topmost.app/Contents/MacOS/Topmost)"
+          echo "${ARCHS}"
+          echo "${ARCHS}" | grep -q arm64
+          echo "${ARCHS}" | grep -q x86_64
+
+      - uses: actions/upload-artifact@v4
         with:
-          name: "Topmost ${{ github.ref_name }} – Native macOS Always on Top"
-          body_path: docs/RELEASE.md
-          draft: false
-          prerelease: false
-          files: |
+          name: Topmost-${{ steps.version.outputs.version }}
+          path: |
             dist/*.zip
             dist/*.dmg
             dist/SHA256SUMS
+            release-notes.md
+          if-no-files-found: error
+
+  release:
+    name: Publish the GitHub release
+    needs: build
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          # Re-running for a tag that already has a release only refreshes its files and notes.
+          if gh release view "${TAG}" --repo "${REPO}" > /dev/null 2>&1; then
+            gh release upload "${TAG}" dist/*.zip dist/*.dmg dist/SHA256SUMS --clobber --repo "${REPO}"
+            gh release edit "${TAG}" --notes-file dist/release-notes.md --repo "${REPO}"
+          else
+            gh release create "${TAG}" dist/*.zip dist/*.dmg dist/SHA256SUMS \
+              --repo "${REPO}" \
+              --title "Topmost ${TAG}" \
+              --notes-file dist/release-notes.md
+          fi

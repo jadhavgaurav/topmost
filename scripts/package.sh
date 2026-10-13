@@ -6,7 +6,9 @@ ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 cd "${ROOT_DIR}"
 
-VERSION="0.1.0"
+INFO_PLIST="${ROOT_DIR}/Sources/Topmost/Resources/Info.plist"
+# The version lives in Info.plist only. Set VERSION in the environment to override it for a test build.
+VERSION="${VERSION:-$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "${INFO_PLIST}")}"
 APP_NAME="Topmost"
 APP_BUNDLE="${ROOT_DIR}/build/${APP_NAME}.app"
 DIST_DIR="${ROOT_DIR}/dist"
@@ -34,13 +36,34 @@ cp "${ROOT_DIR}/Sources/Topmost/Resources/Info.plist" "${APP_BUNDLE}/Contents/In
 cp "${ROOT_DIR}/Sources/Topmost/Resources/AppIcon.icns" "${APP_BUNDLE}/Contents/Resources/AppIcon.icns"
 
 # 3. Code Signing
+#
+# Which identity signs the app:
+#   1. SIGNING_IDENTITY, if set (for example a Developer ID Application certificate).
+#   2. The local development identity from ./scripts/setup-signing.sh, if it exists. It keeps
+#      macOS's Accessibility and Screen Recording approvals across rebuilds, which an ad-hoc
+#      signature cannot. Skipped for release builds (TOPMOST_RELEASE=1 or CI), so published
+#      artifacts never depend on one person's keychain.
+#   3. Ad-hoc otherwise. First launch on another Mac needs "Open Anyway" in System Settings.
 echo "==> Signing ${APP_NAME}.app..."
-SIGN_ID="${SIGNING_IDENTITY:--}"
 ENTITLEMENTS="${ROOT_DIR}/Sources/Topmost/Resources/Topmost.entitlements"
+SIGN_DIR="${HOME}/.topmost-signing"
+LOCAL_KEYCHAIN="${SIGN_DIR}/topmost-signing.keychain-db"
+LOCAL_IDENTITY="Topmost Local Signing"
 
-codesign --force --options runtime --deep --sign "${SIGN_ID}" \
-    --entitlements "${ENTITLEMENTS}" \
-    "${APP_BUNDLE}"
+if [ -n "${SIGNING_IDENTITY:-}" ]; then
+    echo "    identity: ${SIGNING_IDENTITY}"
+    codesign --force --options runtime --deep --sign "${SIGNING_IDENTITY}" \
+        --entitlements "${ENTITLEMENTS}" "${APP_BUNDLE}"
+elif [ -z "${TOPMOST_RELEASE:-}" ] && [ -z "${CI:-}" ] && [ -f "${LOCAL_KEYCHAIN}" ]; then
+    echo "    identity: local development identity (${LOCAL_IDENTITY})"
+    security unlock-keychain -p "$(<"${SIGN_DIR}/keychain-password")" "${LOCAL_KEYCHAIN}"
+    codesign --force --options runtime --deep --keychain "${LOCAL_KEYCHAIN}" --sign "${LOCAL_IDENTITY}" \
+        --entitlements "${ENTITLEMENTS}" "${APP_BUNDLE}"
+else
+    echo "    identity: ad-hoc"
+    codesign --force --options runtime --deep --sign - \
+        --entitlements "${ENTITLEMENTS}" "${APP_BUNDLE}"
+fi
 
 echo "==> Verifying signature..."
 codesign --verify --deep --strict --verbose=2 "${APP_BUNDLE}"

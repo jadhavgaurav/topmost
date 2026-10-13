@@ -1,42 +1,50 @@
 #!/bin/bash
+# Cuts a release: checks everything is consistent, then creates and pushes the version tag.
+# Pushing the tag starts the Release workflow, which tests, builds, and publishes the GitHub
+# release with the DMG, the zip and the checksums.
+#
+#   scripts/release.sh             tag and push the version in Info.plist
+#   scripts/release.sh --dry-run   run every check, change nothing
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
-
 cd "${ROOT_DIR}"
 
-VERSION="v0.1.0"
-REPO="jadhavgaurav/topmost"
-DIST_DIR="${ROOT_DIR}/dist"
+DRY_RUN=0
+[ "${1:-}" = "--dry-run" ] && DRY_RUN=1
 
-echo "========================================="
-echo "Preparing Release ${VERSION} for ${REPO}"
-echo "========================================="
+VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Sources/Topmost/Resources/Info.plist)"
+TAG="v${VERSION}"
 
-# 1. Run Tests
-echo "==> Running automated test suite..."
+fail() { echo "error: $*" >&2; exit 1; }
+
+echo "==> Releasing ${TAG}"
+
+[ "$(git rev-parse --abbrev-ref HEAD)" = "main" ] || fail "releases are cut from main"
+[ -z "$(git status --porcelain)" ] || fail "the working tree has uncommitted changes"
+
+git fetch --quiet origin main --tags
+[ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ] || fail "main is not in sync with origin/main (push or pull first)"
+git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null && fail "tag ${TAG} already exists"
+
+echo "==> Checking the changelog entry"
+"${SCRIPT_DIR}/release-notes.sh" "${VERSION}" >/dev/null || fail "add a ## [${VERSION}] section to CHANGELOG.md"
+
+echo "==> Running lint and tests"
+TOOLCHAIN_DIR="${TOOLCHAIN_DIR:-/Library/Developer/CommandLineTools}" swiftlint lint --strict --quiet
 "${SCRIPT_DIR}/test.sh"
 
-# 2. Package App
-echo "==> Building and packaging release..."
-"${SCRIPT_DIR}/package.sh"
+if [ "${DRY_RUN}" = "1" ]; then
+    echo "==> Dry run complete. ${TAG} is ready to tag."
+    exit 0
+fi
 
-# 3. Verify gh CLI authentication
-echo "==> Verifying GitHub CLI status..."
-gh auth status
-
-# 4. Publish Release
-echo "==> Publishing release ${VERSION}..."
-gh release create "${VERSION}" \
-    --repo "${REPO}" \
-    --title "Topmost ${VERSION} – Native macOS Always on Top" \
-    --notes-file "${ROOT_DIR}/docs/RELEASE.md" \
-    "${DIST_DIR}"/Topmost-*.zip \
-    "${DIST_DIR}"/Topmost-*.dmg \
-    "${DIST_DIR}"/SHA256SUMS
+echo "==> Tagging and pushing ${TAG}"
+git tag -a "${TAG}" -m "Topmost ${VERSION}"
+git push origin "${TAG}"
 
 echo "========================================="
-echo "Release published successfully!"
-echo "View release at: https://github.com/${REPO}/releases/tag/${VERSION}"
+echo "Pushed ${TAG}. The Release workflow now builds and publishes it:"
+echo "https://github.com/jadhavgaurav/topmost/actions/workflows/release.yml"
 echo "========================================="
