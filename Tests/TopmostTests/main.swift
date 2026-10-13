@@ -13,6 +13,19 @@ final class GrantedPermissions: PermissionProviding {
     func requestScreenRecording() {}
 }
 
+/// Collects the result of async work from a test, which runs on another thread.
+final class AsyncOutcome: @unchecked Sendable {
+    private let lock = NSLock()
+    private var didThrow = false
+    private var didFinish = false
+
+    var threw: Bool { lock.withLock { didThrow } }
+    var finished: Bool { lock.withLock { didFinish } }
+
+    func recordThrow() { lock.withLock { didThrow = true } }
+    func recordFinish() { lock.withLock { didFinish = true } }
+}
+
 let testPinManager = PinManager(permissions: GrantedPermissions())
 
 var passedCount = 0
@@ -352,24 +365,23 @@ do {
     let capture = WindowCaptureManager(windowID: 0x7FFF_FFF1)
     capture.stop()
 
-    var threw = false
-    var finished = false
+    let outcome = AsyncOutcome()
     Task {
         do {
             try await capture.start(initialSize: CGSize(width: 200, height: 200), scaleFactor: 2.0)
         } catch {
-            threw = true
+            outcome.recordThrow()
         }
-        finished = true
+        outcome.recordFinish()
     }
 
     let captureDeadline = Date().addingTimeInterval(5.0)
-    while !finished && Date() < captureDeadline {
+    while !outcome.finished && Date() < captureDeadline {
         RunLoop.main.run(until: Date().addingTimeInterval(0.02))
     }
 
-    assertTest(finished, "start() after stop() completes promptly")
-    assertTest(!threw, "start() after stop() returns quietly instead of probing for the window")
+    assertTest(outcome.finished, "start() after stop() completes promptly")
+    assertTest(!outcome.threw, "start() after stop() returns quietly instead of probing for the window")
 
     capture.stop()
     assertTest(true, "Repeated stop() is safe")
